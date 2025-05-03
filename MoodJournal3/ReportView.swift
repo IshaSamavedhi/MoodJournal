@@ -7,6 +7,7 @@ struct ReportView: View {
     @State private var moodOptions: [String] = []
     @State private var entries: [MoodEntry] = []
     @State private var stats: ReportStats?
+    @State private var statsByMood: [String:(count: Int, avgNoteLen: Double)] = [:]
 
     private let moodDB = MoodDatabase()
 
@@ -31,15 +32,16 @@ struct ReportView: View {
 
             Button("Run Report") {
                 moodDB.syncEntriesFromFirestore {
+                    // 1) fetch entries
                     self.entries = moodDB.queryEntries(
                         from: startDate,
                         to:   endDate,
                         mood: selectedMood.isEmpty ? nil : selectedMood
                     )
-                    self.stats = moodDB.computeStats(
-                        from: startDate,
-                        to:   endDate
-                    )
+                    // 2) compute aggregated stats
+                    self.stats = moodDB.computeStats(from: startDate, to: endDate)
+                    // 3) fetch per-mood stats from your VIEW
+                    self.statsByMood = moodDB.fetchMoodEntryStats()
                 }
             }
             .padding()
@@ -47,6 +49,7 @@ struct ReportView: View {
             .foregroundColor(.white)
             .cornerRadius(8)
 
+            // Overall stats
             if let s = stats {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Total Entries: \(s.totalCount)")
@@ -59,6 +62,20 @@ struct ReportView: View {
                 .shadow(radius: 2)
             }
 
+            // ✅ Per-mood stats from the VIEW
+            if !statsByMood.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(statsByMood.sorted(by: { $0.key < $1.key }), id: \.key) { mood, tuple in
+                        Text("\(mood): \(tuple.count) entries, avg note length \(String(format: "%.1f", tuple.avgNoteLen))")
+                    }
+                }
+                .padding()
+                .background(Color.white)
+                .cornerRadius(10)
+                .shadow(radius: 2)
+            }
+
+            // Detailed entry list
             List(entries) { entry in
                 VStack(alignment: .leading) {
                     Text(entry.mood).font(.headline)

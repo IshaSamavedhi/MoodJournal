@@ -18,19 +18,28 @@ class MoodDatabase {
         createMoodOptionTable()
         createMoodEntryTable()
         insertDefaultMoods()
+        createIndexes()
+        createStatsView()
     }
 
     // MARK: - Database Setup
 
     private func openDatabase() {
         let fileURL = try! FileManager.default
-            .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            .url(for: .documentDirectory,
+                 in: .userDomainMask,
+                 appropriateFor: nil,
+                 create: false)
             .appendingPathComponent("moods.sqlite")
+
+        // Debug print:
+        print("🗄️ SQLite DB path: \(fileURL.path)")
 
         if sqlite3_open(fileURL.path, &db) != SQLITE_OK {
             print("Error opening database at \(fileURL.path)")
         }
     }
+
 
     private func createMoodOptionTable() {
         let sql = """
@@ -232,4 +241,43 @@ class MoodDatabase {
                            mostCommonMood: most,
                            averageNoteLength: avgLen)
     }
+    
+    private func createIndexes() {
+      exec("CREATE INDEX IF NOT EXISTS idx_moodentry_date ON MoodEntry(date);")
+      exec("CREATE INDEX IF NOT EXISTS idx_moodentry_mood ON MoodEntry(mood);")
+    }
+
+    
+    private func createStatsView() {
+        let sql = """
+        CREATE VIEW IF NOT EXISTS MoodEntryStats AS
+          SELECT
+            mood,
+            COUNT(*)             AS entryCount,
+            AVG(LENGTH(note))    AS avgNoteLength
+          FROM MoodEntry
+          GROUP BY mood;
+        """
+        exec(sql)
+    }
+    
+    func fetchMoodEntryStats() -> [String: (count: Int, avgNoteLen: Double)] {
+        let sql = "SELECT mood, entryCount, avgNoteLength FROM MoodEntryStats;"
+        var stmt: OpaquePointer?
+        var result = [String:(Int,Double)]()
+
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let mood = String(cString: sqlite3_column_text(stmt, 0))
+                let count = Int(sqlite3_column_int(stmt, 1))
+                let avgLen = sqlite3_column_double(stmt, 2)
+                result[mood] = (count, avgLen)
+            }
+        }
+        sqlite3_finalize(stmt)
+        return result
+    }
+
+
+
 }
